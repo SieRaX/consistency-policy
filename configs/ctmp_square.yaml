@@ -29,7 +29,7 @@ logging:
   id: null
   mode: online
   name: default
-  project: cm_policy_debug
+  project: consistent_policy
   resume: false
 multi_run:
   run_dir: data/outputs/cd/square/ctmpp
@@ -199,7 +199,7 @@ task:
     fps: 10
     max_steps: 400
     n_action_steps: 8
-    n_envs: 1
+    n_envs: 28
     n_obs_steps: 2
     n_test: 50
     n_test_vis: 4
@@ -286,7 +286,7 @@ training:
   use_ema: true
   val_every: 1
   val_sample_every: 5
-  output_dir: outputs/cd/square/
+  output_dir: None
   val_chaining_steps: 1
   p_epochs: 400
 val_dataloader:

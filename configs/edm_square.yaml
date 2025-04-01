@@ -29,7 +29,7 @@ logging:
   id: null
   mode: online
   name: dp_test
-  project: diffusion_policy_debug
+  project: consistent_policy
   resume: true
   tags:
   - train_diffusion_unet_hybrid
@@ -275,7 +275,7 @@ training:
   use_ema: true
   val_every: 1
   val_sample_every: 5
-  output_dir: outputs/edm/square
+  output_dir: None
 val_dataloader:
   batch_size: 64
   num_workers: 8
