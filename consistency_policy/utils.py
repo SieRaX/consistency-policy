@@ -96,7 +96,7 @@ def get_policy(ckpt_path, cfg = None, dataset_path = None):
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_checkpoint(path=ckpt_path, exclude_keys=['optimizer'])
-    workspace_state_dict = torch.load(ckpt_path)
+    workspace_state_dict = torch.load(ckpt_path, weights_only=False)
     normalizer = load_normalizer(workspace_state_dict)
 
     policy = workspace.model

@@ -147,7 +147,6 @@ class CTMWorkspace(BaseWorkspace):
             )
 
         # configure env
-        self.output_dir = cfg.training.output_dir
         if cfg.training.online_rollouts:
             env_runner: BaseImageRunner
             env_runner = hydra.utils.instantiate(

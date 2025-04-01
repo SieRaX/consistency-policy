@@ -218,7 +218,7 @@ class CTMPPUnetHybridImagePolicy(BaseImagePolicy):
         if inference_mode == True:
             print("You should be doing inference only!")
         else:
-            state_dict = state_dict_to_model(torch.load(teacher_path))
+            state_dict = state_dict_to_model(torch.load(teacher_path, weights_only=False))
             teacher.load_state_dict(state_dict)
             teacher.eval()
             teacher.requires_grad_(False)
@@ -279,6 +279,10 @@ class CTMPPUnetHybridImagePolicy(BaseImagePolicy):
 
         # 2. predict model output, WHICH IS NOW THE ACTUAL PREDICTION
         out = self._forward(self.model,
+                            trajectory, t, s, local_cond=local_cond, 
+                            global_cond=global_cond, clamp=True) #clamp at inference time
+        
+        teacher_out = self._forward(self.teacher,
                             trajectory, t, s, local_cond=local_cond, 
                             global_cond=global_cond, clamp=True) #clamp at inference time
 
