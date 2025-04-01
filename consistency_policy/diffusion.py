@@ -107,7 +107,8 @@ class Karras_Scheduler():
         out = model_output * c_out + trajectory * c_skip
         if clamp:
             out = out.clamp(-1.0, 1.0) #this should only happen at inference time
-
+        if torch.isnan(out).any():
+            breakpoint()
         return out
     
     def add_noise(self, trajectory: torch.Tensor, times: torch.Tensor):

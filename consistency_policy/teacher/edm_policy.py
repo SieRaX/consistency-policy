@@ -19,8 +19,6 @@ from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
 from consistency_policy.diffusion import Karras_Scheduler, Huber_Loss
 from consistency_policy.diffusion_unet_with_dropout import ConditionalUnet1D
 
-
-
 class KarrasUnetHybridImagePolicy(BaseImagePolicy):
     def __init__(self, 
             shape_meta: dict,
@@ -41,7 +39,7 @@ class KarrasUnetHybridImagePolicy(BaseImagePolicy):
             inference_mode=False,
 ):
         super().__init__()
-
+        self.nan_error = False
         # parse shape_meta
         action_shape = shape_meta['action']['shape']
         assert len(action_shape) == 1
@@ -192,7 +190,9 @@ class KarrasUnetHybridImagePolicy(BaseImagePolicy):
 
             denoise = lambda traj, t: model(traj, t, local_cond=local_cond, global_cond=global_cond)
             # 3. compute previous image: x_t -> x_t-1
-            trajectory = scheduler.step(denoise, trajectory, t, next_t, clamp = True)
+            if self.nan_error:
+                breakpoint()
+            trajectory = scheduler.step(denoise, trajectory, t, next_t, clamp = True) ## 여기서 NAn나네
 
         
         # finally make sure conditioning is enforced
@@ -208,6 +208,8 @@ class KarrasUnetHybridImagePolicy(BaseImagePolicy):
         """
         assert 'past_action' not in obs_dict # not implemented yet
         # normalize input
+        if self.nan_error:
+            breakpoint()
         nobs = self.normalizer.normalize(obs_dict)
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
