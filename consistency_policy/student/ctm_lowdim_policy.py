@@ -5,8 +5,10 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.func import vmap, jacrev
+from torch.linalg import matrix_norm
 from einops import rearrange, reduce
-
+import time
 from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
@@ -579,3 +581,52 @@ class CTMPPUnetHybridLowdimPolicy(BaseLowdimPolicy):
             result['action_obs_pred'] = action_obs_pred
             result['obs_pred'] = obs_pred
         return result
+    
+    def get_spatial_attention(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        obs_dict: must include "obs" key
+        result: must include "action" key
+        """
+        nobs = self.normalizer['obs'].normalize(obs_dict['obs'])
+        B, _, Do = nobs.shape
+        To = self.n_obs_steps
+        assert Do == self.obs_dim
+        T = self.horizon
+        Da = self.action_dim
+        
+        number_of_noise_per_itr = 25
+        total_itr = 4
+        
+        all_dvdx = []
+        
+        for itr in range(total_itr):
+            shape = (B*number_of_noise_per_itr, T, Da)
+            condition_data = torch.zeros(size=shape, device=self.device, dtype=self.dtype)
+            
+            noise_traj = self.noise_scheduler.sample_inital_position(condition_data, generator=None)
+            global_cond = nobs[:,:To].reshape(nobs.shape[0], -1)
+            # Repeat global_cond to match batch size of condition_data
+            global_cond = global_cond.repeat(number_of_noise_per_itr, 1)
+            global_cond = global_cond.requires_grad_()
+            
+            t = torch.tensor([self.noise_scheduler.time_max], device = condition_data.device)
+            s = torch.tensor([self.noise_scheduler.time_min], device = condition_data.device)
+            
+            def _forward_proxy(traj, global_cond):
+                traj = traj.unsqueeze(0)
+                global_cond = global_cond.unsqueeze(0)
+                return self._forward(self.model, traj, t, s, local_cond=None, global_cond=global_cond, clamp=True)
+            
+            dvdx = vmap(jacrev(_forward_proxy, argnums=1), randomness="different")(noise_traj, global_cond).detach().cpu()
+            dvdx = dvdx.reshape(B,number_of_noise_per_itr, T*Da, -1)
+            all_dvdx.append(dvdx)
+            
+            # Clear GPU memory
+            del noise_traj, global_cond, dvdx
+            torch.cuda.empty_cache()
+        
+        # Concatenate all iterations
+        all_dvdx = torch.cat(all_dvdx, dim=1)
+        
+        # Calculate mean across all samples
+        return matrix_norm(all_dvdx).mean(dim=1)
