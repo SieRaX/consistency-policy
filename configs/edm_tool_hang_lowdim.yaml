@@ -116,7 +116,7 @@ task:
     crf: 22
     dataset_path: data/robomimic/datasets/tool_hang/ph/low_dim_abs.hdf5
     fps: 10
-    max_steps: 400
+    max_steps: 700
     n_action_steps: 8
     n_envs: 28
     n_latency_steps: 0
