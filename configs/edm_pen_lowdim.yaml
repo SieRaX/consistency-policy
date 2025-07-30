@@ -32,10 +32,7 @@ logging:
   name: dp_test
   project: consistent_policy
   resume: true
-  tags:
-  - train_diffusion_unet_hybrid
-  - pen_lowdim
-  - default
+  tags: ["${name}", "${task_name}", "${exp_name}", "edm"]
 multi_run:
   run_dir: data/outputs/2022.12.29/22.31.27_train_diffusion_unet_hybrid_pen_lowdim
   wandb_name_base: dp_test

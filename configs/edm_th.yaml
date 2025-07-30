@@ -31,10 +31,7 @@ logging:
   name: dp_test
   project: diffusion_policy_debug
   resume: true
-  tags:
-  - train_diffusion_unet_hybrid
-  - tool_hang_image
-  - default
+  tags: ["${name}", "${task_name}", "${exp_name}", "edm"]
 multi_run:
   run_dir: data/outputs/2022.12.29/22.31.27_train_diffusion_unet_hybrid_tool_hang_image
   wandb_name_base: dp_test
