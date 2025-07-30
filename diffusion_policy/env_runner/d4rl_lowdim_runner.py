@@ -5,12 +5,14 @@ import torch
 import collections
 import pathlib
 import tqdm
-import h5py
+import json
 import dill
 import math
 import wandb.sdk.data_types.video as wv
-from diffusion_policy.gym_util.async_vector_env_gymnasium import AsyncVectorEnv
+# from gymnasium.vector import AsyncVectorEnv
+# from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
 # from diffusion_policy.gym_util.sync_vector_env import SyncVectorEnv
+from diffusion_policy.gym_util.async_vector_env_gymnasium import AsyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrapper, VideoRecorder
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
@@ -18,28 +20,14 @@ from diffusion_policy.model.common.rotation_transformer import RotationTransform
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.base_lowdim_runner import BaseLowdimRunner
-from diffusion_policy.env.robomimic.robomimic_lowdim_wrapper import RobomimicLowdimWrapper
+from diffusion_policy.env.d4rl.d4rl_lowdim_wrapper import D4RLLowdimWrapper
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
 
+from minari import MinariDataset
 
-def create_env(env_meta, obs_keys):
-    ObsUtils.initialize_obs_modality_mapping_from_dict(
-        {'low_dim': obs_keys})
-    env = EnvUtils.create_env_from_metadata(
-        env_meta=env_meta,
-        render=False, 
-        # only way to not show collision geometry
-        # is to enable render_offscreen
-        # which uses a lot of RAM.
-        render_offscreen=False,
-        use_image_obs=False, 
-    )
-    return env
-
-
-class RobomimicLowdimRunner(BaseLowdimRunner):
+class D4RLLowdimRunner(BaseLowdimRunner):
     """
     Robomimic envs already enforces number of steps.
     """
@@ -47,19 +35,17 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
     def __init__(self, 
             output_dir,
             dataset_path,
-            obs_keys,
             n_train=10,
             n_train_vis=3,
             train_start_idx=0,
             n_test=22,
             n_test_vis=6,
             test_start_seed=10000,
-            max_steps=400,
+            max_steps=200,
             n_obs_steps=2,
             n_action_steps=8,
             n_latency_steps=0,
             render_hw=(256,256),
-            render_camera_name='agentview',
             fps=10,
             crf=22,
             past_action=False,
@@ -98,32 +84,62 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
         # assert n_obs_steps <= n_action_steps
         dataset_path = os.path.expanduser(dataset_path)
+        meta_data = json.load(open(os.path.join(dataset_path, 'metadata.json')))
         robosuite_fps = 20
         steps_per_render = max(robosuite_fps // fps, 1)
 
         # read from dataset
-        env_meta = FileUtils.get_env_metadata_from_dataset(
-            dataset_path)
-        rotation_transformer = None
-        if abs_action:
-            env_meta['env_kwargs']['controller_configs']['control_delta'] = False
-            rotation_transformer = RotationTransformer('axis_angle', 'rotation_6d')
+        # env_meta = FileUtils.get_env_metadata_from_dataset(
+        #     dataset_path)
+        # rotation_transformer = None
+        # if abs_action:
+        #     env_meta['env_kwargs']['controller_configs']['control_delta'] = False
+        #     rotation_transformer = RotationTransformer('axis_angle', 'rotation_6d')
+        
+        
+        # """
+        # dummy function! Remove this after testing!
+        # """
+        
+        # dataset = MinariDataset(os.path.expanduser(dataset_path))
+        # env = dataset.recover_environment()
+        # env = MultiStepWrapper(
+        #         VideoRecordingWrapper(
+        #             D4RLLowdimWrapper(
+        #                 env=env,
+        #                 init_state=None,
+        #                 render_hw=render_hw,
+        #             ),
+        #             video_recoder=VideoRecorder.create_h264(
+        #                 fps=fps,
+        #                 codec='h264',
+        #                 input_pix_fmt='rgb24',
+        #                 crf=crf,
+        #                 thread_type='FRAME',
+        #                 thread_count=1
+        #             ),
+        #             file_path=None,
+        #             steps_per_render=steps_per_render
+        #         ),
+        #         n_obs_steps=env_n_obs_steps,
+        #         n_action_steps=env_n_action_steps,
+        #         max_episode_steps=max_steps
+        #     )
+        # obs, info = env.reset()
+        # print(f"obs: {obs.shape}")
+        # input()
 
         def env_fn():
-            robomimic_env = create_env(
-                    env_meta=env_meta, 
-                    obs_keys=obs_keys
-                )
             # hard reset doesn't influence lowdim env
             # robomimic_env.env.hard_reset = False
+            dataset = MinariDataset(os.path.expanduser(dataset_path))
+            env = dataset.recover_environment()
             return MultiStepWrapper(
                     VideoRecordingWrapper(
-                        RobomimicLowdimWrapper(
-                            env=robomimic_env,
-                            obs_keys=obs_keys,
+                        D4RLLowdimWrapper(
+                            env=env,
                             init_state=None,
                             render_hw=render_hw,
-                            render_camera_name=render_camera_name
                         ),
                         video_recoder=VideoRecorder.create_h264(
                             fps=fps,
@@ -147,33 +163,36 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         env_init_fn_dills = list()
 
         # train
-        with h5py.File(dataset_path, 'r') as f:
-            for i in range(n_train):
-                train_idx = train_start_idx + i
-                enable_render = i < n_train_vis
-                init_state = f[f'data/demo_{train_idx}/states'][0]
-
-                def init_fn(env, init_state=init_state, 
-                    enable_render=enable_render):
-                    # setup rendering
-                    # video_wrapper
-                    assert isinstance(env.env, VideoRecordingWrapper)
-                    env.env.video_recoder.stop()
-                    env.env.file_path = None
-                    if enable_render:
-                        filename = pathlib.Path(output_dir).joinpath(
+        dataset = MinariDataset(os.path.expanduser(dataset_path))
+        for i in range(n_train):
+            train_idx = train_start_idx + i
+            episode = dataset[train_idx]
+            enable_render = i < n_train_vis
+            
+            def init_fn(env, seed=train_idx,
+                enable_render=enable_render):
+                # setup rendering
+                # video_wrapper
+                assert isinstance(env.env, VideoRecordingWrapper)
+                env.env.video_recoder.stop()
+                env.env.file_path = None
+                if enable_render:
+                    filename = pathlib.Path(output_dir).joinpath(
                             'media', "train_seed_" + str(train_idx) + ".mp4")
-                        filename.parent.mkdir(parents=False, exist_ok=True)
-                        filename = str(filename)
-                        env.env.file_path = filename
+                    filename.parent.mkdir(parents=False, exist_ok=True)
+                    filename = str(filename)
+                    env.env.file_path = filename
 
-                    # switch to init_state reset
-                    assert isinstance(env.env.env, RobomimicLowdimWrapper)
-                    env.env.env.init_state = init_state
+                # switch to init_state reset
+                assert isinstance(env.env.env, D4RLLowdimWrapper)
+                minari_state_dict = {key: episode.infos["state"][key] for key in env.env.env.env._state_space.keys()}
+                set_state_dict = {k:v[0] for k,v in minari_state_dict.items()}
+                env.env.env.init_state = set_state_dict
+                # env.seed(seed) # Not compatible with gymnasium
 
-                env_seeds.append(train_idx)
-                env_prefixs.append('train/')
-                env_init_fn_dills.append(dill.dumps(init_fn))
+            env_seeds.append(train_idx)
+            env_prefixs.append('train/')
+            env_init_fn_dills.append(dill.dumps(init_fn))
         
         # test
         for i in range(n_test):
@@ -195,18 +214,17 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                     env.env.file_path = filename
 
                 # switch to seed reset
-                assert isinstance(env.env.env, RobomimicLowdimWrapper)
+                assert isinstance(env.env.env, D4RLLowdimWrapper)
                 env.env.env.init_state = None
-                env.seed(seed)
+                # env.seed(seed) # Not compatible with gymnasium
 
             env_seeds.append(seed)
             env_prefixs.append('test/')
             env_init_fn_dills.append(dill.dumps(init_fn))
         
-        env = AsyncVectorEnv(env_fns)
+        env = AsyncVectorEnv(env_fns, autoreset_mode="Disabled")
         # env = SyncVectorEnv(env_fns)
 
-        self.env_meta = env_meta
         self.env = env
         self.env_fns = env_fns
         self.env_seeds = env_seeds
@@ -221,9 +239,9 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         self.env_n_action_steps = env_n_action_steps
         self.past_action = past_action
         self.max_steps = max_steps
-        self.rotation_transformer = rotation_transformer
         self.abs_action = abs_action
         self.tqdm_interval_sec = tqdm_interval_sec
+        self.meta_data = meta_data
 
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
@@ -247,9 +265,11 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             this_local_slice = slice(0,this_n_active_envs)
             
             this_init_fns = self.env_init_fn_dills[this_global_slice]
+            this_env_seeds = self.env_seeds[this_global_slice]
             n_diff = n_envs - len(this_init_fns)
             if n_diff > 0:
                 this_init_fns.extend([self.env_init_fn_dills[0]]*n_diff)
+                this_env_seeds.extend([self.env_seeds[0]]*n_diff)
             assert len(this_init_fns) == n_envs
 
             # init envs
@@ -257,11 +277,11 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 args_list=[(x,) for x in this_init_fns])
 
             # start rollout
-            obs, _ = env.reset()
+            obs, _ = env.reset(seed=this_env_seeds)
             past_action = None
             policy.reset()
 
-            env_name = self.env_meta['env_name']
+            env_name = self.meta_data['dataset_id']
             pbar = tqdm.tqdm(total=self.max_steps, desc=f"Eval {env_name}Lowdim {chunk_idx+1}/{n_chunks}", 
                 leave=False, mininterval=self.tqdm_interval_sec)
 
@@ -302,8 +322,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 if self.abs_action:
                     env_action = self.undo_transform_action(action)
 
-                obs, reward, done, _, info = env.step(env_action)
-                done = np.all(done)
+                obs, reward, terminated, truncated, info = env.step(env_action)
+                done = np.all(terminated | truncated)
                 past_action = action
 
                 # update pbar
@@ -325,17 +345,18 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         # to completely reproduce reported numbers, uncomment this line:
         # for i in range(len(self.env_fns)):
         # and comment out this line
+        
         for i in range(n_inits):
             seed = self.env_seeds[i]
             prefix = self.env_prefixs[i]
-            max_reward = np.max(all_rewards[i])
+            max_reward = float(np.max(all_rewards[i]))
             max_rewards[prefix].append(max_reward)
             log_data[prefix+f'sim_max_reward_{seed}'] = max_reward
 
             # visualize sim
             video_path = all_video_paths[i]
             if video_path is not None:
-                sim_video = wandb.Video(video_path, format='mp4')
+                sim_video = wandb.Video(video_path, format="mp4")
                 log_data[prefix+f'sim_video_{seed}'] = sim_video
 
         # log aggregate metrics
