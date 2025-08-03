@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 import os
 import pathlib
 import hydra
@@ -8,6 +8,7 @@ from omegaconf import OmegaConf
 import dill
 import torch
 import threading
+import gc
 
 
 class BaseWorkspace:
@@ -73,6 +74,10 @@ class BaseWorkspace:
             self._saving_thread.start()
         else:
             torch.save(payload, path.open('wb'), pickle_module=dill)
+        # delete_payload(payload)
+        payload.clear()
+        # Force garbage collection to free memory immediately
+        gc.collect()
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
@@ -170,3 +175,25 @@ def _copy_to_cpu(x):
         return [_copy_to_cpu(k) for k in x]
     else:
         return copy.deepcopy(x)
+
+# def delete_payload(payload: Union[dict, list]):
+#     """Recursively delete payload contents to help with memory management."""
+#     if isinstance(payload, dict):
+#         # Create a list of keys to avoid modifying dict during iteration
+#         keys_to_delete = list(payload.keys())
+#         for key in keys_to_delete:
+#             value = payload[key]
+#             if isinstance(value, dict) or isinstance(value, list):
+#                 delete_payload(value)
+#             elif isinstance(value, torch.Tensor):
+#                 # Explicitly delete tensor to free GPU memory
+#                 del value
+#             del payload[key]
+#         # Clear the dictionary completely
+#         payload.clear()
+#     elif isinstance(payload, list):
+#         # Clear the list completely
+#         payload.clear()
+#     else:
+#         # For other types, just let them be garbage collected
+#         pass

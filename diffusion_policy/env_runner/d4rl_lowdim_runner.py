@@ -222,10 +222,10 @@ class D4RLLowdimRunner(BaseLowdimRunner):
             env_prefixs.append('test/')
             env_init_fn_dills.append(dill.dumps(init_fn))
         
-        # env = AsyncVectorEnv(env_fns, autoreset_mode="Disabled")
+        env = AsyncVectorEnv(env_fns, autoreset_mode="Disabled")
         # env = SyncVectorEnv(env_fns)
 
-        # self.env = env
+        self.env = env
         self.env_fns = env_fns
         self.env_seeds = env_seeds
         self.env_prefixs = env_prefixs
@@ -246,7 +246,8 @@ class D4RLLowdimRunner(BaseLowdimRunner):
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
         dtype = policy.dtype
-        env = AsyncVectorEnv(self.env_fns, autoreset_mode="Disabled")
+        env = self.env
+        # env = AsyncVectorEnv(self.env_fns, autoreset_mode="Disabled")
         
         # plan for rollout
         n_envs = len(self.env_fns)
