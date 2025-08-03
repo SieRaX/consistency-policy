@@ -334,7 +334,7 @@ class D4RLLowdimRunner(BaseLowdimRunner):
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
             all_rewards[this_global_slice] = env.call('get_attr', 'reward')[this_local_slice]
-        env.close()
+        # env.close()
         # log
         max_rewards = collections.defaultdict(list)
         log_data = dict()
