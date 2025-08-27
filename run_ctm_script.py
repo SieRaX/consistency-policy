@@ -17,7 +17,7 @@ import json
 
 @click.command()
 @click.option('-c', '--task_config_name', required=True, type=str)
-@click.option('-p', '--path', required=True)
+@click.option('-p', '--path', required=True, type=str)
 @click.option('-d', '--device', required=True, type=str)
 @click.option('-hdd', '--hdd_dir', required=False, type=str)
 def main(task_config_name, path, device='cuda:0', hdd_dir="outputs"):
@@ -30,7 +30,7 @@ def main(task_config_name, path, device='cuda:0', hdd_dir="outputs"):
     # Regex to extract score from filename like 'epoch=1000-test_mean_score=0.560.ckpt'
     score_pattern = re.compile(r"test_mean_score=([\d\.eE+-]+)\.ckpt")
 
-    for seed_number in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]:
+    for seed_number in [1, 2, 3, 4, 5, 6, 7, 8, 9]:
         # Find all directories starting with f"seed_{seed_number}" and get the last one
         seed_dirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d)) and d.startswith(f"seed_{seed_number}")]
         if not seed_dirs:
@@ -59,11 +59,12 @@ def main(task_config_name, path, device='cuda:0', hdd_dir="outputs"):
                     except ValueError:
                         continue
             print(f"\033[92m{entry}: {max_file} (score={max_score})\033[0m")
-            max_file = max_file.replace("=", "=")
+            max_file = max_file.replace("=", "\\\=")
+            max_file_dir = os.path.join(checkpoints_dir, max_file)
             
-            run_dir=f"{hdd_dir}/${{task.name}}_${{task.dataset_type}}_reproduction/train_by_seed_ctm/seed_${{training.seed}}_${{now:%Y.%m.%d-%H.%M.%S}}_${{name}}_${{task_name}}_cnn_${{horizon}}"
+            run_dir=f"'{hdd_dir}/${{task.name}}_${{task.dataset_type}}_reproduction/train_by_seed_ctm/seed_${{training.seed}}_${{now:%Y.%m.%d-%H.%M.%S}}_${{name}}_${{task_name}}_cnn_${{horizon}}'"
 
-            command = f"python train.py --config-dir=configs/ --config-name=ctmp_{task_config_name}_lowdim.yaml hydra.run.dir={run_dir} logging.group='${{task.name}}_${{task.dataset_type}}_ctm' logging.name='seed_${{training.seed}}_ctm_${{now:%Y.%m.%d-%H.%M.%S}}_${{name}}_${{task_name}}_${{horizon}}' horizon=32 task.dataset.horizon=32 task.dataset.pad_after=31 training.seed=$seed training.device={device} obs_as_global_cond=True training.num_epochs=200 policy.horizon=32 training.debug=false policy.teacher_path={max_file} policy.edm={max_file}"
+            command = f"python train.py --config-dir=configs/ --config-name=ctmp_{task_config_name}_lowdim.yaml hydra.run.dir={run_dir} logging.group='${{task.name}}_${{task.dataset_type}}_ctm' logging.name='seed_${{training.seed}}_ctm_${{now:%Y.%m.%d-%H.%M.%S}}_${{name}}_${{task_name}}_${{horizon}}' horizon=32 task.dataset.horizon=32 task.dataset.pad_after=31 training.seed={seed_number} training.device={device} obs_as_global_cond=True training.num_epochs=500 policy.horizon=32 training.debug=false policy.teacher_path={max_file_dir} policy.edm={max_file_dir}"
             print(command)
             os.system(command)
 
