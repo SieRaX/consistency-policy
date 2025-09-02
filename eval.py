@@ -41,6 +41,7 @@ def main(checkpoint, output_dir, device, n_action_steps, n_test_vis):
     cfg.policy.n_action_steps = n_action_steps
     cfg.task.env_runner.n_test = 100
     cfg.task.env_runner.n_test_vis = n_test_vis
+    cfg.task.env_runner.n_envs = 10
     # cfg.task.env_runner.n_train = 10
     # cfg.task.env_runner.n_train_vis = 10
     
