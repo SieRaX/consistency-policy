@@ -20,9 +20,9 @@
 #  --device cuda:0
 
 python eval.py \
---checkpoint outputs/square_lowdim_reproduction/12.20.56_train_diffusion_unet_hybrid_square_lowdim_cnn_16_ctm/checkpoints/epoch=0400-test_mean_score=0.920.ckpt \
---output_dir outputs/square_lowdim_reproduction/12.20.56_train_diffusion_unet_hybrid_square_lowdim_cnn_16_ctm/eval_gradient_horizon_8_plot_each_step \
---n_test_vis 58 \
+--checkpoint outputs/can_lowdim_ph_reproduction/train_by_seed_edm/seed_0_2025.08.03-09.54.36_train_diffusion_unet_hybrid_can_lowdim_cnn_32/checkpoints/epoch=0100-test_mean_score=1.000.ckpt \
+--output_dir outputs/can_lowdim_ph_reproduction/train_by_seed_edm/seed_0_2025.08.03-09.54.36_train_diffusion_unet_hybrid_can_lowdim_cnn_32/eval \
+--n_test_vis 50 \
 --device cuda:1
 # --checkpoint outputs/square_lowdim_reproduction/12.20.56_train_diffusion_unet_hybrid_square_lowdim_cnn_16_ctm/checkpoints/epoch=0400-test_mean_score=0.920.ckpt --output_dir outputs/square_lowdim_reproduction/12.20.56_train_diffusion_unet_hybrid_square_lowdim_cnn_16_ctm/eval_gradient_horizon_8 --device cuda:1
 

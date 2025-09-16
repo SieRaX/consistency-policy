@@ -80,10 +80,10 @@ class CTMLowdimWorkspace(BaseWorkspace):
             cfg.task.env_runner.n_train = 1
             cfg.task.env_runner.n_test_vis = 1
             cfg.task.env_runner.n_train_vis = 1
-            
+
         if cfg.policy.edm != "None" and cfg.training.inference_mode == False:
             print(f"Warm starting from {cfg.policy.edm}")
-            self.load_checkpoint(path=cfg.policy.edm, exclude_keys=['ema_model', 'optimizer', 'epoch', 'global_step', '_output_dir'], 
+            self.load_checkpoint(path=cfg.policy.edm, exclude_keys=['ema_model', 'optimizer', 'epoch', 'global_step', '_output_dir'],
                                  update_dict_dim=cfg.policy.diffusion_step_embed_dim, strict=False)
         else:
             print("No warm start provided, assuming inference mode")
@@ -104,7 +104,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                 workspace_state_dict = torch.load(lastest_ckpt_path)
                 normalizer = load_normalizer(workspace_state_dict)
                 self.model.set_normalizer(normalizer)
-        
+
 
         print("EPOCH", self.epoch)
 
@@ -122,14 +122,14 @@ class CTMLowdimWorkspace(BaseWorkspace):
             val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
             steps_per_val_epoch = len(val_dataloader)
 
-            self.model.set_normalizer(normalizer)   
+            self.model.set_normalizer(normalizer)
 
             self.optimizer = hydra.utils.instantiate(
                 cfg.optimizer, params=self.model.parameters())
 
             self.global_step = 0
             self.epoch = 0
-            
+
             # configure lr scheduler
             lr_scheduler = get_scheduler(
                 cfg.training.lr_scheduler,
@@ -147,7 +147,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
         if cfg.training.online_rollouts:
             env_runner: BaseLowdimRunner
             env_runner = hydra.utils.instantiate(
-                cfg.task.env_runner, 
+                cfg.task.env_runner,
                 output_dir=self.output_dir)
             assert isinstance(env_runner, BaseLowdimRunner)
 
@@ -190,7 +190,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
 
         if cfg.training.inference_mode:
             self.model.drop_teacher()
-        
+
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(cfg.training.num_epochs):
                 step_log = dict()
@@ -204,7 +204,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                     steps_per_epoch = len(train_dataloader)
                     stepping_batches = math.ceil(steps_per_epoch / cfg.training.gradient_accumulate_every) * self.p_epochs # 160 IS ESTIMATED NUMBER OF EPOCHS
 
-                    with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
+                    with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}",
                             leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
 
                         for batch_idx, batch in enumerate(tepoch):
@@ -221,7 +221,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                             for k, v in raw_loss.items():
                                 loss_logs[k] = v.item()
                                 loss += v
-                                
+
                                 if k == 'ctm':
                                     ctm_losses.append(v.item())
                                 elif k == 'dsm':
@@ -236,14 +236,14 @@ class CTMLowdimWorkspace(BaseWorkspace):
                                 self.optimizer.zero_grad()
                                 lr_scheduler.step()
                                 self.model.ema_update()
-                            
+
 
 
                             # logging
                             raw_loss_cpu = nloss.item()
                             tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
                             train_losses.append(raw_loss_cpu)
-                            
+
                             step_log = {
                                 'train_loss': raw_loss_cpu,
                                 'global_step': self.global_step,
@@ -289,7 +289,9 @@ class CTMLowdimWorkspace(BaseWorkspace):
                 # run rollout
                 if (self.epoch % cfg.training.rollout_every) == 0 and cfg.training.online_rollouts:
                     policy.chaining_steps = cfg.training.val_chaining_steps
+                    policy.enable_chain()
                     runner_log = env_runner.run(policy)
+                    policy.disable_chain()
                     policy.chaining_steps = 1
                     # log all
                     step_log.update(runner_log)
@@ -303,13 +305,13 @@ class CTMLowdimWorkspace(BaseWorkspace):
                             val_losses = list()
                             val_mse_error = list()
                             val_mse_teacher_error = list()
-                            with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}", 
+                            with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
                                     leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                                 for batch_idx, batch in enumerate(tepoch):
                                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                                     loss = sum(self.model.compute_loss(batch).values())
                                     val_losses.append(loss)
-                                    
+
                                     if (self.epoch % val_sample_every) == 0:
                                         obs_dict = {'obs': batch['obs']}
                                         gt_action = batch['action']
@@ -335,7 +337,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
 
                                         del pred_action_teacher
                                         del result_teacher
-                                        del mse_teacher 
+                                        del mse_teacher
                                         del obs_dict
                                         del gt_action
                                         del result
@@ -349,7 +351,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                             if len(val_losses) > 0:
                                 val_loss = torch.mean(torch.tensor(val_losses)).item()
                                 step_log['val_loss'] = val_loss
-                                
+
                             if len(val_mse_error) > 0:
                                 val_mse_error = torch.mean(torch.tensor(val_mse_error)).item()
                                 step_log['val_mse_error'] = val_mse_error
@@ -359,7 +361,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
 
                                 val_mse_teacher_error = torch.mean(torch.tensor(val_mse_teacher_error)).item()
                                 step_log['val_mse_teacher_error'] = val_mse_teacher_error
-                                
+
                     # run diffusion sampling on a training batch
                     t_time = 0
                     count = 0
@@ -369,15 +371,15 @@ class CTMLowdimWorkspace(BaseWorkspace):
                             batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                             obs_dict = {'obs': batch['obs']}
                             gt_action = batch['action']
-                            
-                            
+
+
                             start_time = time.time()
                             result = policy.predict_action(obs_dict)
                             t = time.time() - start_time
-                            
+
                             t_time += t
                             count += 1
-                            
+
 
                             pred_action = result['action_pred']
                             mse = torch.nn.functional.mse_loss(pred_action, gt_action)
@@ -390,7 +392,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                             del result
                             del pred_action
                             del mse
-                
+
                 # checkpoint
                 if (self.epoch % cfg.training.checkpoint_every) == 0:
                     # checkpointing
@@ -404,7 +406,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
                     for key, value in step_log.items():
                         new_key = key.replace('/', '_')
                         metric_dict[new_key] = value
-                    
+
                     # We can't copy the last checkpoint here
                     # since save_checkpoint uses threads.
                     # therefore at this point the file might have been empty!
@@ -425,7 +427,7 @@ class CTMLowdimWorkspace(BaseWorkspace):
 
 @hydra.main(
     version_base=None,
-    config_path=str(pathlib.Path(__file__).parent.parent.joinpath("config")), 
+    config_path=str(pathlib.Path(__file__).parent.parent.joinpath("config")),
     config_name=pathlib.Path(__file__).stem)
 def main(cfg):
     workspace = CTMLowdimWorkspace(cfg)
