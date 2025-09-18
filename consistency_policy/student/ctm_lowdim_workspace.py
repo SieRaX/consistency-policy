@@ -289,9 +289,9 @@ class CTMLowdimWorkspace(BaseWorkspace):
                 # run rollout
                 if (self.epoch % cfg.training.rollout_every) == 0 and cfg.training.online_rollouts:
                     policy.chaining_steps = cfg.training.val_chaining_steps
-                    policy.enable_chain()
+                    policy.enable_chaining()
                     runner_log = env_runner.run(policy)
-                    policy.disable_chain()
+                    policy.disable_chaining()
                     policy.chaining_steps = 1
                     # log all
                     step_log.update(runner_log)
