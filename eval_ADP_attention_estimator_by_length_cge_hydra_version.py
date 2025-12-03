@@ -80,6 +80,7 @@ def main(cfg: OmegaConf):
     # # get policy from workspace
     # policy = workspace.model
     policy = get_policy(checkpoint, cfg=checkpoint_cfg)
+    policy.enable_chaining()# enable chaining
     
     policy.n_action_steps = checkpoint_cfg.policy.horizon - checkpoint_cfg.policy.n_obs_steps
     # Make sure that policy samples maximum length of action chunk.
