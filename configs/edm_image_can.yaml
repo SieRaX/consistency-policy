@@ -249,8 +249,8 @@ task:
       robot0_gripper_qpos:
         shape:
         - 2
-  task_name: square
-task_name: square_image
+  task_name: can
+task_name: can_image
 training:
   inference_mode: false # Setting this to true disables the teacher, warm start, and training loop
   online_rollouts: true # Setting this to false disables the env_runner
