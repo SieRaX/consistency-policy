@@ -78,7 +78,7 @@ class EDMWorkspace(BaseWorkspace):
             if cfg.training.resume_path != "None":
                 print(f"Resuming from checkpoint {cfg.training.resume_path}")
                 self.load_checkpoint(path=cfg.training.resume_path, exclude_keys=['optimizer'])
-                workspace_state_dict = torch.load(cfg.training.resume_path)
+                workspace_state_dict = torch.load(cfg.training.resume_path, weights_only=False)
                 normalizer = load_normalizer(workspace_state_dict)
                 self.model.set_normalizer(normalizer)
                 
@@ -86,7 +86,7 @@ class EDMWorkspace(BaseWorkspace):
             if lastest_ckpt_path.is_file() and cfg.training.resume_path == "None":
                 print(f"Resuming from checkpoint {lastest_ckpt_path}", exclude_keys=['optimizer'])
                 self.load_checkpoint(path=lastest_ckpt_path)
-                workspace_state_dict = torch.load(lastest_ckpt_path)
+                workspace_state_dict = torch.load(lastest_ckpt_path, weights_only=False)
                 normalizer = load_normalizer(workspace_state_dict)
                 self.model.set_normalizer(normalizer)
 
