@@ -275,7 +275,7 @@ training:
   use_ema: true
   val_every: 1
   val_sample_every: 5
-  output_dir: outputs/edm/tool_hang
+  output_dir: None
 val_dataloader:
   batch_size: 64
   num_workers: 8
