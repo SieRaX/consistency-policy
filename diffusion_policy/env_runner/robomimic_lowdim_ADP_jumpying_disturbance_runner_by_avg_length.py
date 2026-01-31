@@ -25,7 +25,7 @@ from diffusion_policy.model.transformer import Seq2SeqTransformer
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
-from diffusion_policy.env_runner.disturbance_generator.jumping_disturbance_generator import BaseDisturbanceGenerator
+from diffusion_policy.env_runner.disturbance_generator.base_disturbance_generator import BaseDisturbanceGenerator
 
 def create_env(env_meta, obs_keys):
     ObsUtils.initialize_obs_modality_mapping_from_dict(
@@ -276,7 +276,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         all_c_att_array = [None] * n_inits
         all_dc_att_array = [None] * n_inits
         all_horizon_length_avg = [None] * n_inits
-
+        all_grasp_attempts = [None] * n_inits
+        
         horizon_length_avg = None
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
@@ -310,6 +311,11 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                                       desc=f"[Task: {env_name}Lowdim | Chunk: {chunk_idx+1}/{n_chunks}]Finding c_att_bar | Average C_att: None | Average length: None", 
                                       leave=False, mininterval=self.tqdm_interval_sec)
             while not torch.all(complete):
+                
+                np.random.seed(seed)
+                torch.manual_seed(seed)
+                torch.cuda.manual_seed_all(seed)
+
                 obs, _ = env.reset(seed=this_env_seeds)
                 # env.seed(this_env_seeds) # somehow, robomimic lowdim wrapper sets the seed to None after reset. So we give the seed again to the env.
                 past_action = None
@@ -403,7 +409,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                         horizon_length_lst = env.call('get_attr', 'horizon_idx_list')
 
                         # horizon_length_lst = torch.stack(horizon_length_lst, dim=1)
-                        horizon_length_avg = torch.tensor([torch.tensor(arr, dtype=torch.float).mean().item() for arr in horizon_length_lst])
+                        horizon_length_avg = torch.tensor([torch.tensor(arr if len(arr) < 3 else arr[:-1], dtype=torch.float).mean().item() for arr in horizon_length_lst])
                         
                         indices_mask = ((horizon_length_avg < self.n_action_steps-0.5).logical_and(complete.logical_not()))
                         big_step_mask = (indices_mask & (plus_minus_mask < 0))
@@ -421,7 +427,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                         number_of_attempts[indices_mask & big_step.logical_not()] += 1
                         c_att_array[indices_mask] -= dc_att_array[indices_mask]
                         
-                        indices_mask = ((horizon_length_avg > self.n_action_steps-0.5).logical_and(horizon_length_avg < self.n_action_steps+0.5))
+                        indices_mask = ((horizon_length_avg >= self.n_action_steps-0.5).logical_and(horizon_length_avg <= self.n_action_steps+0.5))
                         # complete[:] = False # reset complete... for sanity check
                         env.call_each('register_c_att', args_list=[[c_att_array_before_el] for c_att_array_before_el in c_att_array_before])
 
@@ -446,7 +452,13 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                     # update pbar
                     pbar.refresh()
-                    pbar.n = min(env.call('get_attr', 'total_steps'))
+                    total_steps_arr = np.array(env.call('get_attr', 'total_steps'))
+                    not_complete_indices = complete.logical_not().numpy()
+                    filtered_steps = total_steps_arr[not_complete_indices]
+                    if filtered_steps.size == 0:
+                        pbar.n = max(total_steps_arr)
+                    else:
+                        pbar.n = max(filtered_steps)
                     pbar.refresh()
                     
                     
@@ -464,7 +476,9 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                     all_c_att_array[this_global_slice] = env.call('get_attr', 'c_att')[this_local_slice]
                     all_dc_att_array[this_global_slice] = dc_att_array
                     all_horizon_length_avg[this_global_slice] = horizon_length_avg
-
+                    
+                    env.call_each('get_grasp_signal')
+                    all_grasp_attempts[this_global_slice] = env.call('get_attr', 'total_grasps')[this_local_slice]
                     ## set the complete to False for all envs so we can start new chunk
                     env.call_each('set_complete', args_list=[[False] for _ in range(n_envs)])
 
@@ -473,6 +487,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             find_catt_bar.close()
         # log
         max_rewards = collections.defaultdict(list)
+        number_of_grasp_attempts = collections.defaultdict(list)
         log_data = dict()
         # results reported in the paper are generated using the commented out line below
         # which will only report and average metrics from first n_envs initial condition and seeds
@@ -490,7 +505,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             log_data[prefix+f'sim_max_reward_{seed}'] = max_reward
             log_data[prefix+f'sim_catt_{seed}'] = all_c_att_array[i].item()
             log_data[prefix+f'sim_horizon_avg_length_{seed}'] = all_horizon_length_avg[i].item()
-
+            log_data[prefix+f'sim_number_of_grasp_attempts_{seed}'] = all_grasp_attempts[i]
+            number_of_grasp_attempts[prefix].append(all_grasp_attempts[i])
             # visualize sim
             video_path = all_video_paths[i]
             if video_path is not None:
@@ -507,6 +523,13 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             name = prefix+'mean_score_valid'
             value = np.mean(value_el[~(value_el<0)])
             log_data[name] = value
+            
+            if isinstance(self.disturbance_generator, BaseDisturbanceGenerator):
+                name = prefix+'mean_score_with_single_grasp'
+                grasp_attempts_el = np.array(number_of_grasp_attempts[prefix])
+                value = np.mean(value_el[~(value_el<0)] * (grasp_attempts_el[~(value_el<0)] == 1))
+                log_data[name] = value
+        
 
         return log_data
 

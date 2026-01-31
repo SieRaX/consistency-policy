@@ -15,6 +15,7 @@ import wandb.sdk.data_types.video as wv
 from diffusion_policy.gym_util.async_vector_env_gymnasium import AsyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrapper, VideoRecorder
+from diffusion_policy.gym_util.attention_recording_wrapper import AttentionRecordingWrapper
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
@@ -136,10 +137,14 @@ class D4RLLowdimRunner(BaseLowdimRunner):
             env = dataset.recover_environment()
             return MultiStepWrapper(
                     VideoRecordingWrapper(
+                        AttentionRecordingWrapper(
                         D4RLLowdimWrapper(
                             env=env,
                             init_state=None,
                             render_hw=render_hw,
+                        ),
+                        max_timesteps=max_steps,
+                        max_attention=10.0
                         ),
                         video_recoder=VideoRecorder.create_h264(
                             fps=fps,
@@ -154,7 +159,7 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                     ),
                     n_obs_steps=env_n_obs_steps,
                     n_action_steps=env_n_action_steps,
-                    max_episode_steps=max_steps
+                    max_episode_steps=max_steps,
                 )
 
         env_fns = [env_fn] * n_envs
@@ -184,8 +189,8 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                     env.env.file_path = filename
 
                 # switch to init_state reset
-                assert isinstance(env.env.env, D4RLLowdimWrapper)
-                minari_state_dict = {key: episode.infos["state"][key] for key in env.env.env.env._state_space.keys()}
+                assert isinstance(env.env.env.env, D4RLLowdimWrapper)
+                minari_state_dict = {key: episode.infos["state"][key] for key in env.env.env.env.env._state_space.keys()}
                 set_state_dict = {k:v[0] for k,v in minari_state_dict.items()}
                 env.env.env.init_state = set_state_dict
                 # env.seed(seed) # Not compatible with gymnasium
@@ -214,8 +219,8 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                     env.env.file_path = filename
 
                 # switch to seed reset
-                assert isinstance(env.env.env, D4RLLowdimWrapper)
-                env.env.env.init_state = None
+                assert isinstance(env.env.env.env, D4RLLowdimWrapper)
+                env.env.env.env.init_state = None
                 # env.seed(seed) # Not compatible with gymnasium
 
             env_seeds.append(seed)
@@ -257,7 +262,8 @@ class D4RLLowdimRunner(BaseLowdimRunner):
         # allocate data
         all_video_paths = [None] * n_inits
         all_rewards = [None] * n_inits
-
+        all_obs_list = [None] * n_inits
+        all_action_list = [None] * n_inits
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
             end = min(n_inits, start + n_envs)
@@ -277,8 +283,11 @@ class D4RLLowdimRunner(BaseLowdimRunner):
             env.call_each('run_dill_function', 
                 args_list=[(x,) for x in this_init_fns])
 
+            obs_list = list()
+            action_list = list()
             # start rollout
             obs, _ = env.reset(seed=this_env_seeds)
+            obs_list.append(obs)
             past_action = None
             policy.reset()
 
@@ -326,7 +335,8 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                 obs, reward, terminated, truncated, info = env.step(env_action)
                 done = np.all(terminated | truncated)
                 past_action = action
-
+                obs_list.append(obs)
+                action_list.append(action)
                 # update pbar
                 pbar.update(action.shape[1])
             pbar.close()
@@ -334,6 +344,11 @@ class D4RLLowdimRunner(BaseLowdimRunner):
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
             all_rewards[this_global_slice] = env.call('get_attr', 'reward')[this_local_slice]
+            all_obs_list[this_global_slice] = obs_list
+            all_action_list[this_global_slice] = action_list
+            # np.save(os.path.join(self.output_dir, f'obs_list_{chunk_idx}.npy'), np.stack(obs_list, axis=1))
+            # np.save(os.path.join(self.output_dir, f'action_list_{chunk_idx}.npy'), np.stack(action_list, axis=1))
+            # input()
         # env.close()
         # log
         max_rewards = collections.defaultdict(list)

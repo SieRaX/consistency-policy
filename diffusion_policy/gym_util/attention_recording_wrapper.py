@@ -9,6 +9,7 @@ from PIL import Image
 
 from diffusion_policy.env.d4rl.d4rl_lowdim_wrapper import D4RLLowdimWrapper
 from gymnasium_robotics.envs.adroit_hand.adroit_hammer import AdroitHandHammerEnv
+from gymnasium_robotics.envs.adroit_hand.adroit_door import AdroitHandDoorEnv
 
 def get_additional_info(env:gym.Env):
     
@@ -18,7 +19,11 @@ def get_additional_info(env:gym.Env):
         if type(mujoco_env) == AdroitHandHammerEnv:
             nail_pos = mujoco_env.data.site_xpos[mujoco_env.target_obj_site_id].ravel()
             goal_pos = mujoco_env.data.site_xpos[mujoco_env.goal_site_id].ravel()
-            return {'goal_distance': np.linalg.norm(nail_pos - goal_pos)}
+            return {'nail_distance': [np.linalg.norm(nail_pos - goal_pos), 0.01]}
+
+        elif type(mujoco_env) == AdroitHandDoorEnv:
+            door_pos = mujoco_env.data.qpos[mujoco_env.door_hinge_addrs]
+            return {'door_pos': [door_pos, 1.35]}
 
         return dict()
         
@@ -86,6 +91,27 @@ class AttentionRecordingWrapper(gym.Wrapper):
             ax.scatter(np.arange(0, self.timestep), self.attention_pred_list[:self.timestep], color='red', s=30)
 
             trigger_index = np.where(self.sample_triggered_list[:self.timestep])[0]
+
+            if len(trigger_index) == 1:
+                horizon_length = len(self.attention_pred_list)
+            else:
+                horizon_length = len(self.attention_pred_list) - trigger_index[-1]
+
+            # Draw horizon_length in upper right corner of the graph
+            ax.annotate(
+                f"horizon_length: {horizon_length}",
+                xy=(1.0, 1.02),
+                xycoords='axes fraction',
+                fontsize=10,
+                ha='right',
+                va='bottom',
+                fontweight='bold',
+                color='black',
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray")
+            )
+
+            self.attention_length_before = len(self.attention_pred_list)
+            
             ax.scatter(trigger_index, 
                       np.zeros_like(trigger_index), 
                       color='green', s=50, marker='x')
@@ -98,12 +124,15 @@ class AttentionRecordingWrapper(gym.Wrapper):
             
             graph_imgs_additional_list = list()
             graph_widths_additional_list = list()
-            for key, value in self.additional_info.items():
+            for key, value_and_goal in self.additional_info.items():
+                value_and_goal = np.array(value_and_goal)
+                value = value_and_goal[:, 0]
+                goal = value_and_goal[:, 1]
                 fig, ax = plt.subplots(figsize=(4, 3))
                 ax.set_xlim(0, self.max_timesteps)
                 ax.set_ylim(bottom=0.0, top=max(value)+0.01)
                 ax.plot(np.arange(0, self.timestep), value, 'b-', linewidth=1)
-                ax.plot(np.arange(0, self.timestep), np.ones_like(value)*0.01, 'm--', linewidth=1)
+                ax.plot(np.arange(0, self.timestep), np.ones_like(value)*goal[0], 'm--', linewidth=1)
                 ax.set_xlabel('Time Step')
                 ax.set_title(key)
                 # ax.set_ylabel(key)

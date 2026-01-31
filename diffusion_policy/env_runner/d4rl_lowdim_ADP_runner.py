@@ -402,7 +402,7 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                         horizon_length_lst = env.call('get_attr', 'horizon_idx_list')
 
                         # horizon_length_lst = torch.stack(horizon_length_lst, dim=1)
-                        horizon_length_avg = torch.tensor([torch.tensor(arr, dtype=torch.float).mean().item() for arr in horizon_length_lst])
+                        horizon_length_avg = torch.tensor([torch.tensor(arr if len(arr) < 3 else arr[:-1], dtype=torch.float).mean().item() for arr in horizon_length_lst])
                         
                         indices_mask = ((horizon_length_avg < self.n_action_steps-0.5).logical_and(complete.logical_not()))
                         big_step_mask = (indices_mask & (plus_minus_mask < 0))
@@ -446,7 +446,13 @@ class D4RLLowdimRunner(BaseLowdimRunner):
 
                     # update pbar
                     pbar.refresh()
-                    pbar.n = min(env.call('get_attr', 'total_steps'))
+                    total_steps_arr = np.array(env.call('get_attr', 'total_steps'))
+                    not_complete_indices = complete.logical_not().numpy()
+                    filtered_steps = total_steps_arr[not_complete_indices]
+                    if filtered_steps.size == 0:
+                        pbar.n = max(total_steps_arr)
+                    else:
+                        pbar.n = max(filtered_steps)
                     pbar.refresh()
                     
                     
@@ -473,6 +479,9 @@ class D4RLLowdimRunner(BaseLowdimRunner):
                     # print(f"obs_list shape: {np.stack(obs_list, axis=1).shape}")
                     # print(f"action_list shape: {np.stack(action_list, axis=1).shape}")
                     # input()
+                    ## set the complete to False for all envs so we can start new chunk
+                    env.call_each('get_grasp_signal')
+                    all_grasp_attempts[this_global_slice] = env.call('get_attr', 'total_grasps')[this_local_slice]
                     ## set the complete to False for all envs so we can start new chunk
                     env.call_each('set_complete', args_list=[[False] for _ in range(n_envs)])
 

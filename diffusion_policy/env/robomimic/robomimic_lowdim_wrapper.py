@@ -56,6 +56,8 @@ class RobomimicLowdimWrapper(gym.Env):
         self._seed = seed
     
     def reset(self, **kwargs):
+        if 'seed' in kwargs:
+            self._seed = kwargs['seed']
         if self.init_state is not None:
             # always reset to the same state
             # to be compatible with gym
@@ -83,10 +85,10 @@ class RobomimicLowdimWrapper(gym.Env):
         return obs, {"state_dict": state}
     
     def step(self, action):
-        raw_obs, reward, done, info = self.env.step(action)
-        obs = np.concatenate([
-            raw_obs[key] for key in self.obs_keys
-        ], axis=0)
+        raw_obs, reward, _ , info = self.env.step(action)
+        done = reward > 0
+        
+        obs = self.get_observation()
         info["state_dict"] = self.env.get_state()['states']
         return obs, reward, done, False, info
     

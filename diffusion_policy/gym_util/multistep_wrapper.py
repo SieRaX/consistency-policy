@@ -1,3 +1,5 @@
+# import gym
+# from gym import spaces
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -87,9 +89,108 @@ class MultiStepWrapper(gym.Wrapper):
         self.done = list()
         self.info = defaultdict(lambda : deque(maxlen=n_obs_steps+1))
     
+    def reset(self):
+        """Resets the environment using kwargs."""
+        obs = super().reset()
+
+        self.obs = deque([obs], maxlen=self.n_obs_steps+1)
+        self.reward = list()
+        self.done = list()
+        self.info = defaultdict(lambda : deque(maxlen=self.n_obs_steps+1))
+
+        obs = self._get_obs(self.n_obs_steps)
+        return obs
+
+    def step(self, action):
+        """
+        actions: (n_action_steps,) + action_shape
+        """
+        for act in action:
+            if len(self.done) > 0 and self.done[-1]:
+                # termination
+                break
+            observation, reward, done, info = super().step(act)
+
+            self.obs.append(observation)
+            self.reward.append(reward)
+            if (self.max_episode_steps is not None) \
+                and (len(self.reward) >= self.max_episode_steps):
+                # truncation
+                done = True
+            self.done.append(done)
+            self._add_info(info)
+
+        observation = self._get_obs(self.n_obs_steps)
+        reward = aggregate(self.reward, self.reward_agg_method)
+        done = aggregate(self.done, 'max')
+        info = dict_take_last_n(self.info, self.n_obs_steps)
+        return observation, reward, done, info
+
+    def _get_obs(self, n_steps=1):
+        """
+        Output (n_steps,) + obs_shape
+        """
+        assert(len(self.obs) > 0)
+        if isinstance(self.observation_space, spaces.Box):
+            return stack_last_n_obs(self.obs, n_steps)
+        elif isinstance(self.observation_space, spaces.Dict):
+            result = dict()
+            for key in self.observation_space.keys():
+                result[key] = stack_last_n_obs(
+                    [obs[key] for obs in self.obs],
+                    n_steps
+                )
+            return result
+        else:
+            raise RuntimeError('Unsupported space type')
+
+    def _add_info(self, info):
+        for key, value in info.items():
+            self.info[key].append(value)
+    
+    def get_rewards(self):
+        return self.reward
+    
+    def get_attr(self, name):
+        return getattr(self, name)
+
+    def run_dill_function(self, dill_fn):
+        fn = dill.loads(dill_fn)
+        return fn(self)
+    
+    def get_infos(self):
+        result = dict()
+        for k, v in self.info.items():
+            result[k] = list(v)
+        return result
+
+class MultiStepWrapper_Gymnasium(gym.Wrapper):
+    def __init__(self, 
+            env, 
+            n_obs_steps, 
+            n_action_steps, 
+            max_episode_steps=None,
+            reward_agg_method='max'
+        ):
+        super().__init__(env)
+        self._action_space = repeated_space(env.action_space, n_action_steps)
+        self._observation_space = repeated_space(env.observation_space, n_obs_steps)
+        self.max_episode_steps = max_episode_steps
+        self.n_obs_steps = n_obs_steps
+        self.n_action_steps = n_action_steps
+        self.reward_agg_method = reward_agg_method
+        self.n_obs_steps = n_obs_steps
+
+        self.obs = deque(maxlen=n_obs_steps+1)
+        self.reward = list()
+        self.done = list()
+        self.info = defaultdict(lambda : deque(maxlen=n_obs_steps+1))
+    
     def reset(self, **kwargs):
         """Resets the environment using kwargs."""
         obs, info = super().reset(**kwargs)
+        # obs = super().reset(**kwargs)
+        info = dict()
 
         self.obs = deque([obs], maxlen=self.n_obs_steps+1)
         self.reward = list()
@@ -102,6 +203,7 @@ class MultiStepWrapper(gym.Wrapper):
         obs = self._get_obs(self.n_obs_steps)
         info = dict_take_last_n(self.info, 1)
         return obs, info
+        # return obs
 
     def step(self, action):
         """
@@ -114,6 +216,7 @@ class MultiStepWrapper(gym.Wrapper):
                 break
             observation, reward, terminated, truncated, info = super().step(act)
             done = terminated or truncated
+            # observation, reward, done, info = super().step(act)
 
             self.obs.append(observation)
             self.reward.append(reward)
@@ -181,7 +284,7 @@ class MultiStepWrapper(gym.Wrapper):
     def seed(self, seed=None):
         return self.env.seed(seed)
 
-class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
+class SubMultiStepWrapperwithDisturbance(MultiStepWrapper_Gymnasium):
     def __init__(self, 
             env, 
             n_obs_steps, 
@@ -200,6 +303,7 @@ class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
         self.sample_triggered_list = list()
         self.complete = False
         self.c_att = None
+        self.grasp_signal = list()
 
     def set_invalid_env(self, is_it_invalid):
         if is_it_invalid:
@@ -225,7 +329,7 @@ class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
             self.attention_pred_list = list()
             self.sample_triggered_list = list()
             self.c_att = None
-
+            self.grasp_signal = list()
             res = super().reset(**kwargs)
             return res
     
@@ -234,19 +338,19 @@ class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
             self.c_att = c_att
         
     def register_horizon_idx(self, horizon_idx):
-        if not self.complete:
+        if len(self.done) == 0 or (not self.complete and not self.done[-1]):
             self.horizon_idx = horizon_idx
             self.horizon_idx_list.append(horizon_idx)
     
     def register_attention_pred(self, attention_pred):
-        if not self.complete:
+        if len(self.done) == 0 or (not self.complete and not self.done[-1]):
             self.attention_pred_list.append(attention_pred)
             sample_triggered = np.zeros(attention_pred.shape[0], dtype=np.bool)
             sample_triggered[0]=True
             self.sample_triggered_list.append(sample_triggered)
     
     def deregister_horizon_idx(self):
-        if not self.complete:
+        if len(self.done) == 0 or (not self.complete and not self.done[-1]):
             self.horizon_idx = None
 
     def step(self, action):
@@ -282,10 +386,11 @@ class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
 
                 if self.disturbance_generator is not None:
                     new_state = self.disturbance_generator.generate_state_with_disturbance(self.env.env.env.env)
-                    self.env.env.env.env.reset_to(new_state)
+                    self.env.env.env.env.reset_to(new_state) ### I don't like here but we will leave it as it is for now.
 
                 self.obs.append(observation)
                 self.reward.append(reward)
+                self.grasp_signal.append(act[-1])
                 if (self.max_episode_steps is not None) \
                     and (len(self.reward) >= self.max_episode_steps):
                     # truncation
@@ -318,3 +423,29 @@ class SubMultiStepWrapperwithDisturbance(MultiStepWrapper):
             # done = terminated or truncated
             info = dict_take_last_n(self.info, self.n_obs_steps)
             return observation, reward, terminated, truncated, info
+        
+    def get_grasp_signal(self):
+        # Calculate number of grasp attempts
+        # A grasp attempt is triggered when grasp signal transitions from -1 to 1
+        # and after that transition, 1 is applied more than 5 times
+        num_grasp_attempts = 0
+        if len(self.grasp_signal) >= 2:
+            i = 0
+            while i < len(self.grasp_signal) - 1:
+                # Check for transition from -1 to 1
+                if self.grasp_signal[i] < -0.01 and self.grasp_signal[i + 1] > 0.01:
+                    # Count consecutive 1s after the transition
+                    consecutive_ones = 1  # Start with the 1 at i+1
+                    j = i + 2
+                    while j < len(self.grasp_signal) and self.grasp_signal[j] > 0.01:
+                        if self.grasp_signal[j] > 0.7:
+                            consecutive_ones += 1
+                        j += 1
+                    # If more than 5 consecutive 1s, count as a grasp attempt
+                    if consecutive_ones > 3:
+                        num_grasp_attempts += 1
+                    i = j  # Skip past the consecutive 1s
+                else:
+                    i += 1
+                    
+        self.total_grasps = num_grasp_attempts
