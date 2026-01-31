@@ -106,6 +106,9 @@ class EDMWorkspace(BaseWorkspace):
             if cfg.training.use_ema:
                 self.ema_model.set_normalizer(normalizer)
 
+            for param_group in self.optimizer.param_groups:
+                param_group['initial_lr'] = self.optimizer.param_groups[0]['lr']
+
             # configure lr scheduler
             lr_scheduler = get_scheduler(
                 cfg.training.lr_scheduler,
