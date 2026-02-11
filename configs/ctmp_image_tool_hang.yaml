@@ -29,7 +29,7 @@ logging:
   id: null
   mode: online
   name: default
-  project: cm_policy_debug
+  project: consistent_policy
   resume: false
   tags: ["${name}", "${task_name}", "${exp_name}", "ctm"]
 multi_run:
