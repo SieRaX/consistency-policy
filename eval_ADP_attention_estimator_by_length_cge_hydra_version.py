@@ -74,8 +74,8 @@ def main(cfg: OmegaConf):
 
     # start_log.json works as an indicator that the evaluation is under process.
     # This will prevent other process to work on the same directory, or else, it might overwrite the exsiting logs.
-    if os.path.exists(os.path.join(output_dir, "start_log.json")):
-        click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
+    # if os.path.exists(os.path.join(output_dir, "start_log.json")):
+    #     click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
     start_log = dict()
     start_log['command'] = ' '.join(sys.argv)
     json.dump(start_log, open(os.path.join(output_dir, "start_log.json"), "w"), indent=2, sort_keys=True)
@@ -110,6 +110,10 @@ def main(cfg: OmegaConf):
 
     if 'obs_dim' in checkpoint_cfg:
         obs_dim = checkpoint_cfg.obs_dim
+        action_dim = checkpoint_cfg.action_dim
+    elif 'obs_dim' in checkpoint_cfg.task:
+        obs_dim = checkpoint_cfg.task.obs_dim
+        action_dim = checkpoint_cfg.task.action_dim
     else:
         OmegaConf.set_struct(checkpoint_cfg, False)
         from omegaconf import open_dict
@@ -118,15 +122,17 @@ def main(cfg: OmegaConf):
                 checkpoint_cfg.policy.image_feature_dim = 5
 
             if 'action_dim' not in checkpoint_cfg:
-                checkpoint_cfg.action_dim = checkpoint_cfg.task.shape_meta.action.shape[0]
+                action_dim = checkpoint_cfg.task.shape_meta.action.shape[0]
+            else:
+                action_dim = checkpoint_cfg.action_dim
             obs_dim = checkpoint_cfg.policy.image_feature_dim * 2 + 9 ## This is only for robomimic tasks
     try:
-        attention_estimator = Seq2SeqTransformer(obs_dim=obs_dim*2, action_dim=checkpoint_cfg.action_dim, seq_len=checkpoint_cfg.policy.horizon)
+        attention_estimator = Seq2SeqTransformer(obs_dim=obs_dim*2, action_dim=action_dim, seq_len=checkpoint_cfg.policy.horizon)
         attention_estimator.load_state_dict(torch.load(attention_estimator_dir, weights_only=False))
     except Exception as e:
-        print("\033[33mError loading attention estimator, Switching to Seq2SeqTransformerWithVisionEncoder\033[0m")
-        attention_estimator = Seq2SeqTransformerWithVAE(obs_dim=obs_dim*2, action_dim=checkpoint_cfg.action_dim, seq_len=checkpoint_cfg.policy.horizon)
-        attention_estimator.load_state_dict(torch.load(attention_estimator_dir, weights_only=False))
+        print(f"\033[33mError loading attention estimator with error \n {e} \n Switching to Seq2SeqTransformerWithVisionEncoder\033[0m")
+        attention_estimator = Seq2SeqTransformerWithVAE(obs_dim=obs_dim*2, action_dim=action_dim, seq_len=checkpoint_cfg.policy.horizon)
+        attention_estimator.load_state_dict(torch.load(attention_estimator_dir, weights_only=False, map_location="cpu"))
     
     device = torch.device(device)
     policy.to(device)
