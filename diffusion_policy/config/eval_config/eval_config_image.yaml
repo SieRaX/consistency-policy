@@ -10,6 +10,7 @@ device: "cuda:0"
 seed: 10000
 init_catt: 10.0
 init_dcatt: 5.0
+chaining: True
 
 env_runner:
   _target_: diffusion_policy.env_runner.robomimic_image_ADP_runner.RobomimicImageRunner

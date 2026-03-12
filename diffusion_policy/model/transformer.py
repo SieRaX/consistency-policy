@@ -278,6 +278,8 @@ class Seq2SeqTransformerWithVAE(nn.Module):
             latent_dim = 32
         elif "16" in self.vae_checkpoint:
             latent_dim = 16
+        elif "14" in self.vae_checkpoint:
+            latent_dim = 14
         else:
             raise ValueError(f"VAE checkpoint {self.vae_checkpoint} is not supported.")
         # elif "14" in self.vae_checkpoint:
@@ -301,7 +303,7 @@ class Seq2SeqTransformerWithVAE(nn.Module):
         # else:
         #     raise ValueError(f"VAE checkpoint {self.vae_checkpoint} is not supported.")
         self.vae = VAE(latent_dim=latent_dim, input_size=input_size)
-        self.vae.load_state_dict(torch.load(self.vae_checkpoint))
+        self.vae.load_state_dict(torch.load(self.vae_checkpoint, map_location="cpu"))
         
         self.encoder_initialized = True
         

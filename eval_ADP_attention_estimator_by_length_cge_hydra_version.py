@@ -71,6 +71,7 @@ def main(cfg: OmegaConf):
     disturbance_cfg = cfg.disturbance
     init_catt = cfg.init_catt
     init_dcatt = cfg.init_dcatt
+    chaining = cfg.chaining
 
     # start_log.json works as an indicator that the evaluation is under process.
     # This will prevent other process to work on the same directory, or else, it might overwrite the exsiting logs.
@@ -99,7 +100,11 @@ def main(cfg: OmegaConf):
     # # get policy from workspace
     # policy = workspace.model
     policy = get_policy(checkpoint, cfg=checkpoint_cfg)
-    policy.enable_chaining()# enable chaining
+    
+    if chaining:
+        policy.enable_chaining()
+    else:
+        policy.disable_chaining()
     
     policy.n_action_steps = checkpoint_cfg.policy.horizon - checkpoint_cfg.policy.n_obs_steps
     # Make sure that policy samples maximum length of action chunk.
